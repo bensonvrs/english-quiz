@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GEPT Comic Adventure | 漫畫英語冒險</title>
     
-    <!-- 核心庫 -->
+    <!-- 核心庫 (直接引入，無需安裝) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
@@ -15,7 +15,7 @@
     <!-- Markdown 解析 (用於顯示 AI 回應) -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-    <!-- 自定義配置 -->
+    <!-- Tailwind 自定義配置 -->
     <script>
         tailwind.config = {
             theme: {
@@ -145,6 +145,11 @@
                 <div v-if="currentScreen === 'home'" class="absolute inset-0 flex flex-col p-6 items-center justify-center z-10 bg-[#FFFBEB]">
                     <div class="halftone-bg absolute inset-0 pointer-events-none"></div>
                     
+                    <!-- 設定按鈕 (Settings Button) -->
+                    <button @click="showSettings = true" class="absolute top-4 right-4 bg-white border-2 border-comic-black w-10 h-10 rounded-full flex items-center justify-center shadow-comic-hover hover:scale-110 transition-transform z-20" title="設定 API Key">
+                        <i class="fa-solid fa-gear text-comic-black"></i>
+                    </button>
+
                     <div class="relative mb-8 transform hover:scale-105 transition-transform duration-300 cursor-pointer animate-pow">
                         <div class="bg-comic-red text-white font-comic text-6xl px-6 py-4 border-4 border-comic-black shadow-comic-lg rotate-3 z-10 relative">
                             START!
@@ -399,12 +404,41 @@
                 </div>
             </transition>
 
+            <!-- 設定彈窗 (Settings Modal) -->
+            <transition name="fade">
+                <div v-if="showSettings" class="absolute inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+                    <div class="bg-white border-4 border-comic-black rounded-3xl p-6 w-full max-w-sm text-center shadow-comic-lg relative overflow-hidden animate-pow">
+                        <div class="relative z-10">
+                            <h2 class="text-2xl font-comic tracking-wide mb-4 text-comic-black">SETTINGS</h2>
+                            
+                            <div class="text-left mb-6">
+                                <label class="block text-comic-black font-bold mb-2">Gemini API Key</label>
+                                <input v-model="userApiKey" type="password" placeholder="Paste your API key here..." class="w-full border-2 border-comic-black rounded-xl px-4 py-3 font-bold focus:outline-none focus:ring-4 ring-comic-yellow">
+                                <p class="text-xs text-gray-500 mt-2 font-bold">
+                                    <i class="fa-solid fa-lock"></i> Key 只會儲存在你的瀏覽器中
+                                </p>
+                            </div>
+
+                            <div class="flex gap-2">
+                                <button @click="saveApiKey" class="flex-1 bg-comic-green text-white font-bold py-3 rounded-xl border-2 border-comic-black shadow-comic active:shadow-none active:translate-y-[4px] transition-all">
+                                    儲存 (Save)
+                                </button>
+                                <button @click="showSettings = false" class="flex-1 bg-gray-200 text-comic-black font-bold py-3 rounded-xl border-2 border-comic-black shadow-comic active:shadow-none active:translate-y-[4px] transition-all">
+                                    關閉 (Close)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+
         </main>
     </div>
 
     <script>
         const { createApp } = Vue;
-        const apiKey = ""; // API Key 會在執行時自動注入
+        // 注意：為了 GitHub Pages 安全，這裡留空。請在網頁右上角「設定」中輸入 Key。
+        const apiKey = ""; 
 
         createApp({
             data() {
@@ -421,7 +455,11 @@
                     // AI 相關
                     isAiLoading: false,
                     aiExplanation: '',
-                    userTheme: '', // 用戶自訂主題
+                    userTheme: '', 
+                    
+                    // 設定相關
+                    showSettings: false,
+                    userApiKey: '', // 用戶自己輸入的 Key
                     
                     // Speaking 相關
                     isRecording: false,
@@ -434,7 +472,7 @@
                     // TTS 聲音列表
                     voices: [],
 
-                    // 內建題庫 (Fallback)
+                    // 內建題庫
                     database: {
                         easy: {
                             listening: [{ type: 'listen', text: 'Apple', options: ['Banana', 'Apple', 'Orange', 'Grape'], answer: 1 }],
@@ -456,6 +494,12 @@
                 const loadVoices = () => { this.voices = window.speechSynthesis.getVoices(); };
                 window.speechSynthesis.onvoiceschanged = loadVoices;
                 loadVoices();
+
+                // 讀取儲存的 API Key
+                const savedKey = localStorage.getItem('gemini_key');
+                if (savedKey) {
+                    this.userApiKey = savedKey;
+                }
             },
             computed: {
                 currentQuestion() { return this.currentQuestions[this.currentIndex]; },
@@ -464,11 +508,25 @@
             methods: {
                 renderMarkdown(text) { return marked.parse(text); },
                 
+                // 儲存 API Key
+                saveApiKey() {
+                    localStorage.setItem('gemini_key', this.userApiKey);
+                    this.showSettings = false;
+                    alert("API Key 已儲存！");
+                },
+
                 // --- Gemini API 呼叫 ---
                 async callGemini(prompt, isJson = false) {
-                    if (!apiKey) { alert("API Key not found."); return null; }
+                    // 優先使用用戶輸入的 Key，如果沒有則使用環境 Key (預覽用)
+                    const keyToUse = this.userApiKey || apiKey;
+
+                    if (!keyToUse) { 
+                        alert("請先在設定 (⚙️) 中輸入你的 Gemini API Key 才能使用 AI 功能！"); 
+                        this.showSettings = true;
+                        return null; 
+                    }
                     try {
-                        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${keyToUse}`;
                         const payload = {
                             contents: [{ parts: [{ text: prompt }] }],
                             generationConfig: isJson ? { responseMimeType: "application/json" } : {}
@@ -479,12 +537,12 @@
                         return data.candidates[0].content.parts[0].text;
                     } catch (error) {
                         console.error("Gemini API Error:", error);
-                        alert("AI 連線失敗，請稍後再試！");
+                        alert("AI 連線失敗，請檢查 API Key 是否正確！");
                         return null;
                     }
                 },
 
-                // 🌟 新功能: 生成全方位 AI 關卡 (自訂主題 + 隨機題型)
+                // 🌟 生成全方位 AI 關卡
                 async startAiLevel() {
                     this.isAiLoading = true;
                     const diffLevel = this.difficulty === 'easy' ? 'elementary school student (A1 level)' : 'junior high student (A2/B1 level)';
@@ -497,7 +555,6 @@
                     Return ONLY a JSON object with this specific structure based on the chosen skill:
                     
                     1. If 'listen': { "type": "listen", "text": "TargetWord", "options": ["Wrong1", "TargetWord", "Wrong2", "Wrong3"], "answer": 1 }
-                    (Note: The 'text' is what the TTS will read. 'answer' is the index of the correct option.)
                     
                     2. If 'speak': { "type": "speak", "text": "A simple sentence related to the theme for the user to read aloud." }
                     
@@ -513,12 +570,9 @@
                     if (result) {
                         try {
                             const newQuestion = JSON.parse(result);
-                            
-                            // 修正寫作題的資料結構 (加上 id 和 used 狀態)
                             if (newQuestion.type === 'write') {
                                 newQuestion.scrambled = newQuestion.scrambled.map((word, id) => ({ text: word, id: id, used: false }));
                             }
-
                             this.activeSkill = newQuestion.type === 'listen' ? 'listening' : 
                                                newQuestion.type === 'speak' ? 'speaking' :
                                                newQuestion.type === 'read' ? 'reading' : 'writing';
@@ -562,7 +616,6 @@
                 },
                 startSkill(skill) {
                     this.activeSkill = skill;
-                    // 使用預設題庫
                     let rawQ = JSON.parse(JSON.stringify(this.database[this.difficulty || 'easy'][skill]));
                     if(skill === 'writing') {
                         rawQ.forEach(q => {
